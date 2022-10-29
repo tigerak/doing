@@ -92,7 +92,8 @@ class Util():
         F2 = (1.0 + (beta**2)) * precision * recall / ((beta**2 * precision) + recall + 1e-12)
         return F2.mean(0)
     
-    def criterion(loss_func, outputs, img_labels, batch_size, gpu):
+    ### SupCon ###
+    def criterion_con(loss_func, outputs, img_labels, batch_size, gpu):
         losses = 0
         for i, key in enumerate(outputs):
             f1, f2 = torch.split(outputs[key], [batch_size, batch_size], dim=0)
@@ -101,8 +102,13 @@ class Util():
                                 features=feature, 
                                 labels=img_labels['labels'][key])
         return losses
+    
+    def criterion_ce(loss_func, outputs, img_labels, batch_size, gpu):
+        losses = 0
+        for i, key in enumerate(outputs):
+            losses += loss_func(outputs[key], img_labels['labels'][key])
+        return losses
         
-    ### SupCon ###
     def accuracy(output, target, topk=(1,)):
         """Computes the accuracy over the k top predictions for the specified values of k"""
         with torch.no_grad():
@@ -201,9 +207,6 @@ class SupConLoss(nn.Module):
         self.base_temperature = base_temperature
 
     def forward(self, gpu, features, labels=None, mask=None):
-        # device = (torch.device('cuda')
-        #           if features.is_cuda
-        #           else torch.device('cpu'))
         
         if len(features.shape) < 3:
             raise ValueError('`features` needs to be [bsz, n_views, ...],'
@@ -215,14 +218,14 @@ class SupConLoss(nn.Module):
         if labels is not None and mask is not None:
             raise ValueError('Cannot define both `labels` and `mask`')
         elif labels is None and mask is None:
-            mask = torch.eye(batch_size, dtype=torch.float32).cuda(gpu)#.to(device)
+            mask = torch.eye(batch_size, dtype=torch.float32).cuda(gpu)
         elif labels is not None:
             labels = labels.contiguous().view(-1, 1)
             if labels.shape[0] != batch_size:
                 raise ValueError('Num of labels does not match num of features')
-            mask = torch.eq(labels, labels.T).float().cuda(gpu)#.to(device)
+            mask = torch.eq(labels, labels.T).float().cuda(gpu)
         else:
-            mask = mask.float().cuda(gpu)#.to(device)
+            mask = mask.float().cuda(gpu)
 
         contrast_count = features.shape[1]
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
@@ -251,7 +254,7 @@ class SupConLoss(nn.Module):
         logits_mask = torch.scatter(
             torch.ones_like(mask),
             1,
-            torch.arange(batch_size * anchor_count).view(-1, 1).cuda(gpu),#.to(device),
+            torch.arange(batch_size * anchor_count).view(-1, 1).cuda(gpu),
             0
         )
         mask = mask * logits_mask
@@ -317,7 +320,7 @@ class ProjectionHead(nn.Module):
         self.ce_layer = nn.Linear(embedding_dim, target_dim, bias=True) 
     
     def forward(self, x, mode):
-        if mode == 'train':
+        if mode == 'first':
             projected = self.projection(x)
             x = self.gelu(projected)
             x = self.fc(x)
@@ -326,7 +329,7 @@ class ProjectionHead(nn.Module):
             # x = self.layer_norm(x)
             return F.normalize(x)
     
-        elif mode == 'eval':
+        elif mode == 'second':
             x = self.ce_layer(x)
             return F.normalize(x)
 # %%
@@ -347,14 +350,14 @@ class MultiLabelClassifier(nn.Module):
     def forward(self, x, mode=None):
         x = self.model_non_fc(x)
         
-        if mode == 'train':
+        if mode == 'first':
             return {
                 'level_1' : self.level_1_emb(x, mode),
                 'level_2' : self.level_2_emb(x, mode),
                 'level_3' : self.level_3_emb(x, mode)
             }
             
-        elif mode == 'eval':
+        elif mode == 'second':
             return {
                 'level_1' : self.level_1_fc(x, mode),
                 'level_2' : self.level_2_fc(x, mode),
@@ -377,53 +380,85 @@ class Training():
             "acc_2": 0,
             "acc_3": 0
         }
-
-        loss = np.inf
-        with tqdm(total=len(dataloader)) as t:
-            t.set_description(f'[{epoch+1}/{max_epoch}]')
-            
-            # Iteration step
-            for i, img_labels in enumerate(dataloader):
+        if mode == 'first':
+            loss = np.inf
+            with tqdm(total=len(dataloader)) as t:
+                t.set_description(f'[{epoch+1}/{max_epoch}]')
                 
-                images = torch.cat([img_labels['image'][0], img_labels['image'][1]], dim=0)
+                # Iteration step
+                for i, img_labels in enumerate(dataloader):
+                    
+                    images = torch.cat([img_labels['image'][0], img_labels['image'][1]], dim=0)
+                    
+                    if gpu is not None:
+                        images = images.cuda(gpu, non_blocking=True)
+                    if torch.cuda.is_available():
+                        for label_key in img_labels['labels'].keys():
+                            img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
+                    
+                    output = model(images, mode)
+                    
+                    # Calculate Loss
+                    batch_size = img_labels['labels']['level_1'].size(0)
+                    loss = Util.criterion_con(loss_func, output, img_labels, batch_size, gpu)
+                    summ["loss"] += loss.item()
+                    
+                    # Train & Update model
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    
+                    dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
+                    t.set_postfix(dict_summ)
+                    t.update()
+                    
+        if mode == 'second':
+            loss = np.inf
+            with tqdm(total=len(dataloader)) as t:
+                t.set_description(f'[{epoch+1}/{max_epoch}]')
                 
-                if gpu is not None:
-                    images = images.cuda(gpu, non_blocking=True)
-                if torch.cuda.is_available():
-                    for label_key in img_labels['labels'].keys():
-                        img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
-                
-                output = model(images, mode)
-                
-                # Calculate Loss
-                batch_size = img_labels['labels']['level_1'].size(0)
-                loss = Util.criterion(loss_func, output, img_labels, batch_size, gpu)
-                summ["loss"] += loss.item()
-                
-                # Train & Update model
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                # Iteration step
+                for i, img_labels in enumerate(dataloader):
+                    
+                    images = img_labels['image']
+                    
+                    if gpu is not None:
+                        images = images.cuda(gpu, non_blocking=True)
+                    if torch.cuda.is_available():
+                        for label_key in img_labels['labels'].keys():
+                            img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
+                    
+                    output = model(images, mode)
+                    
+                    # Calculate Loss
+                    batch_size = img_labels['labels']['level_1'].size(0)
+                    loss = Util.criterion_ce(loss_func, output, img_labels, batch_size, gpu)
+                    summ["loss"] += loss.item()
+                    
+                    # Train & Update model
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    
+                    # _, preds_1 = torch.max(output['level_1'].data, 1)
+                    # correct_1 = (preds_1 == img_labels['labels']['level_1']).sum().item()
+                    # summ["acc_1"] += correct_1 / batch_size
 
-                # _, preds_1 = torch.max(output['level_1'].data, 1)
-                # correct_1 = (preds_1 == img_labels['labels']['level_1']).sum().item()
-                # summ["acc_1"] += correct_1 / batch_size
+                    # _, preds_2 = torch.max(output['level_2'].data, 1)
+                    # correct_2 = (preds_2 == img_labels['labels']['level_2']).sum().item()
+                    # summ["acc_2"] += correct_2 / batch_size
 
-                # _, preds_2 = torch.max(output['level_2'].data, 1)
-                # correct_2 = (preds_2 == img_labels['labels']['level_2']).sum().item()
-                # summ["acc_2"] += correct_2 / batch_size
-
-                # _, preds_3 = torch.max(output['level_3'].data, 1)
-                # correct_3 = (preds_3 == img_labels['labels']['level_3']).sum().item()
-                # summ["acc_3"] += correct_3 / batch_size
+                    # _, preds_3 = torch.max(output['level_3'].data, 1)
+                    # correct_3 = (preds_3 == img_labels['labels']['level_3']).sum().item()
+                    # summ["acc_3"] += correct_3 / batch_size
 
 
-                dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
-                # dict_summ.update({"acc_1" : f'{summ["acc_1"]/(i+1)*100:05.3f}'})
-                # dict_summ.update({"acc_2" : f'{summ["acc_2"]/(i+1)*100:05.3f}'})
-                # dict_summ.update({"acc_3" : f'{summ["acc_3"]/(i+1)*100:05.3f}'})
-                t.set_postfix(dict_summ)
-                t.update()
+                    dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
+                    # dict_summ.update({"acc_1" : f'{summ["acc_1"]/(i+1)*100:05.3f}'})
+                    # dict_summ.update({"acc_2" : f'{summ["acc_2"]/(i+1)*100:05.3f}'})
+                    # dict_summ.update({"acc_3" : f'{summ["acc_3"]/(i+1)*100:05.3f}'})
+                    t.set_postfix(dict_summ)
+                    t.update()
                 
         save_file = './ckpt_epoch_{epoch}.pth'.format(epoch=epoch)
         Util.save_model(model, optimizer, epoch, loss, save_file)
@@ -592,7 +627,8 @@ class Start():
         model = MultiLabelClassifier(n_classes_1, n_classes_2, n_classes_3)
         
         # define loss function (criterion) and optimizer
-        loss_func = SupConLoss().cuda(gpu)
+        loss_con = SupConLoss().cuda(gpu)
+        loss_ce = nn.CrossEntropyLoss().cuda(gpu)
     
         # Optimizer
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -658,8 +694,12 @@ class Start():
             lr = optimizer.param_groups[0]["lr"] / ngpus_per_node
 
             # train for one epoch
-            mode = 'train'
-            train_metrics_summary = Training.train(train_loader, model, loss_func, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
+            mode = 'first'
+            train_metrics_summary = Training.train(train_loader, model, loss_con, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
+            metrics_train.append(train_metrics_summary)
+            
+            mode = 'second'
+            train_metrics_summary = Training.train(train_loader, model, loss_ce, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_train.append(train_metrics_summary)
 
             # evaluate on validation set
