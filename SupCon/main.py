@@ -579,17 +579,7 @@ class Start():
         val_df = annotations_df[annotations_df['type']=='VAL']
 
         # Train Data Load
-        train_transform = T.Compose([
-            T.Resize((CFG.RESIZE, CFG.RESIZE)),
-            T.GaussianBlur(kernel_size=(5, 5)), 
-            T.RandomVerticalFlip(), 
-            T.RandomHorizontalFlip(),
-            T.RandomRotation(degrees=(0, 180)),
-            T.ToTensor()
-        ])
-        
-        train_dataset = SupConDataset(train_df, 
-                                      transform=TwoCropTransform(train_transform))
+        train_dataset = self.data_transform(train_df , mode='train')
 
         if ngpus_per_node > 1:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -602,13 +592,9 @@ class Start():
         )
 
         # Validation Data Load
-        val_transform = T.Compose([
-            T.Resize((CFG.RESIZE, CFG.RESIZE)),
-            T.ToTensor()
-        ])
-        val_dataset = SupConDataset(val_df, transform=val_transform)
+        val_dataset = self.data_transform(val_df, mode='val')
         val_loader = DataLoader(
-            val_dataset, batch_size=CFG.BATCH_SIZE, shuffle=True, # False  
+            val_dataset, batch_size=CFG.BATCH_SIZE, shuffle=True, # False 
             num_workers=CFG.NUM_WORKS, pin_memory=True
         )
 
@@ -697,16 +683,28 @@ class Start():
             mode = 'first'
             train_metrics_summary = Training.train(train_loader, model, loss_con, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_train.append(train_metrics_summary)
+
+            # evaluate on validation set
+            val_metrics_summary = Training.eval(val_loader, model, epoch, CFG.MAX_EPOCH, gpu, mode)
+            metrics_val.append(val_metrics_summary)
+        
+        for epoch in range(CFG.MAX_EPOCH):
+            # for shuffling
+            if ngpus_per_node > 1:
+                train_sampler.set_epoch(epoch)
+            adjust_learning_rate(optimizer, epoch, ngpus_per_node)
             
+            lr = optimizer.param_groups[0]["lr"] / ngpus_per_node
+
+            # train for one epoch
             mode = 'second'
             train_metrics_summary = Training.train(train_loader, model, loss_ce, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_train.append(train_metrics_summary)
 
             # evaluate on validation set
-            mode = 'eval'
             val_metrics_summary = Training.eval(val_loader, model, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_val.append(val_metrics_summary)
-            
+                
             # Best Model Save
         #     if val_loss.avg < self.best_val_loss:
         #         self.best_val_loss = val_loss.avg
@@ -719,7 +717,29 @@ class Start():
             pickle.dump(metrics_train, fw)
         with open('CLIP_metrics_val.pickle', 'wb') as fw:
             pickle.dump(metrics_val, fw)
-           
+    
+    def data_transform(self, df, mode='train'):
+        if mode == 'train':
+            train_transform = T.Compose([
+                T.Resize((CFG.RESIZE, CFG.RESIZE)),
+                T.GaussianBlur(kernel_size=(5, 5)), 
+                T.RandomVerticalFlip(), 
+                T.RandomHorizontalFlip(),
+                T.RandomRotation(degrees=(0, 180)),
+                T.ToTensor()
+            ])
+        
+            train_dataset = SupConDataset(df, TwoCropTransform(train_transform))
+            return train_dataset
+        
+        elif mode == 'val':
+            val_transform = T.Compose([
+                T.Resize((CFG.RESIZE, CFG.RESIZE)),
+                T.ToTensor()
+            ])
+            val_dataset = SupConDataset(df, val_transform)
+            return val_dataset
+        
     def ddp(self, model, ngpus_per_node, gpu):
         if not torch.cuda.is_available():
             print('using CPU, this will be slow')
