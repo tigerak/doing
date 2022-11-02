@@ -40,17 +40,17 @@ class CFG:
     
     # ProjectionHead
     num_projection_layers = 1
-    projection_dim = 256
+    projection_dim = 512
     dropout = 0.1
     
     # SupConLoss
     temperature = 0.07
     
     # Main
-    VISIBLE_GPU = "0, 1"
+    VISIBLE_GPU = "0"
     MAX_EPOCH = 20
-    BATCH_SIZE = 8
-    NUM_WORKS = 8
+    BATCH_SIZE = 2
+    NUM_WORKS = 2
     
     # Re Training
     TRAINING_CHEKPOINT = '/home/doinglab-hs/ak/training_model.pt'
@@ -64,12 +64,6 @@ class Util():
         idx = np.where(classes_list == label)
         target[idx] = 1
         return target
-
-    # def criterion(loss_func, outputs, img_labels):
-    #     losses = 0
-    #     for i, key in enumerate(outputs):
-    #         losses += loss_func(outputs[key], img_labels['labels'][key])
-    #     return losses
 
     def acc_func(output, label, batch_size):
         p = torch.argmax(output, dim=1)
@@ -93,6 +87,28 @@ class Util():
         return F2.mean(0)
     
     ### SupCon ###
+    def data_transform(df, mode='train'):
+        if mode == 'train':
+            train_transform = T.Compose([
+                T.Resize((CFG.RESIZE, CFG.RESIZE)),
+                T.GaussianBlur(kernel_size=(5, 5)), 
+                T.RandomVerticalFlip(), 
+                T.RandomHorizontalFlip(),
+                T.RandomRotation(degrees=(0, 180)),
+                T.ToTensor()
+            ])
+        
+            train_dataset = SupConDataset(df, TwoCropTransform(train_transform))
+            return train_dataset
+        
+        elif mode == 'val':
+            val_transform = T.Compose([
+                T.Resize((CFG.RESIZE, CFG.RESIZE)),
+                T.ToTensor()
+            ])
+            val_dataset = SupConDataset(df, val_transform)
+            return val_dataset
+        
     def criterion_con(loss_func, outputs, img_labels, batch_size, gpu):
         losses = 0
         for i, key in enumerate(outputs):
@@ -279,7 +295,7 @@ class SupConLoss(nn.Module):
 # %%
 class SupConDataset(Dataset):
     def __init__(self, annotations_file, transform=None):
-        self.img_labels = annotations_file[['file_name', 'idx_1', 'idx_2', 'idx_3']]
+        self.img_labels = annotations_file[['path', 'level_1', 'level_2', 'level_3']]
         self.transform = transform
 
     def __len__(self):
@@ -574,12 +590,11 @@ class Start():
                                     world_size=ngpus_per_node, rank=gpu)
         
         # DataSet Load
-        annotations_df = pd.read_csv(CFG.DB_PATH)
-        train_df = annotations_df[annotations_df['type']=='TRAIN']
-        val_df = annotations_df[annotations_df['type']=='VAL']
+        train_df = pd.read_csv('D:/my_git/doing/train_df.csv')
+        val_df = pd.read_csv('D:/my_git/doing/val_df.csv')
 
         # Train Data Load
-        train_dataset = self.data_transform(train_df , mode='train')
+        train_dataset = Util.data_transform(train_df , mode='train')
 
         if ngpus_per_node > 1:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -592,7 +607,7 @@ class Start():
         )
 
         # Validation Data Load
-        val_dataset = self.data_transform(val_df, mode='val')
+        val_dataset = Util.data_transform(val_df, mode='val')
         val_loader = DataLoader(
             val_dataset, batch_size=CFG.BATCH_SIZE, shuffle=True, # False 
             num_workers=CFG.NUM_WORKS, pin_memory=True
@@ -602,12 +617,12 @@ class Start():
                 and gpu % ngpus_per_node == 0):
             print("PyTorch Version :", torch.__version__)
             
-        n_classes_1 = len(annotations_df['idx_1'].unique())
-        n_classes_2 = len(annotations_df['idx_2'].unique())
-        n_classes_3 = len(annotations_df['idx_3'].unique())
-        print('n_classes_1', n_classes_1)
-        print('n_classes_2', n_classes_2)
-        print('n_classes_3', n_classes_3)
+        n_classes_1 = len(train_df['level_1'].unique())
+        n_classes_2 = len(train_df['level_2'].unique())
+        n_classes_3 = len(train_df['level_3'].unique())
+        print('Num classes_1 :', n_classes_1)
+        print('Num classes_2 :', n_classes_2)
+        print('Num classes_3 :', n_classes_3)
 
         # Create Model
         model = MultiLabelClassifier(n_classes_1, n_classes_2, n_classes_3)
@@ -717,28 +732,6 @@ class Start():
             pickle.dump(metrics_train, fw)
         with open('CLIP_metrics_val.pickle', 'wb') as fw:
             pickle.dump(metrics_val, fw)
-    
-    def data_transform(self, df, mode='train'):
-        if mode == 'train':
-            train_transform = T.Compose([
-                T.Resize((CFG.RESIZE, CFG.RESIZE)),
-                T.GaussianBlur(kernel_size=(5, 5)), 
-                T.RandomVerticalFlip(), 
-                T.RandomHorizontalFlip(),
-                T.RandomRotation(degrees=(0, 180)),
-                T.ToTensor()
-            ])
-        
-            train_dataset = SupConDataset(df, TwoCropTransform(train_transform))
-            return train_dataset
-        
-        elif mode == 'val':
-            val_transform = T.Compose([
-                T.Resize((CFG.RESIZE, CFG.RESIZE)),
-                T.ToTensor()
-            ])
-            val_dataset = SupConDataset(df, val_transform)
-            return val_dataset
         
     def ddp(self, model, ngpus_per_node, gpu):
         if not torch.cuda.is_available():
