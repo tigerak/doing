@@ -27,12 +27,12 @@ import timm
 
 # %%
 class CFG:
-    release_mode = None # None, 'inference', 'retrain'
+    release_mode = 'inference' # None, 'inference', 'retrain'
     DB_PATH = '/home/doinglab-hs/ak/db/eng_df.csv'
 
     ### TRAIN_PARAM ###
     # Image Encoder
-    RESIZE = 300
+    RESIZE = 224
     MODEL_NAME = "tf_efficientnetv2_s_in21ft1k" 
     image_embedding = 1280
     
@@ -48,15 +48,17 @@ class CFG:
     
     # Main
     VISIBLE_GPU = "0"
-    MAX_EPOCH = 20
-    BATCH_SIZE = 2
-    NUM_WORKS = 2
+    MAX_EPOCH = 1
+    BATCH_SIZE = 8
+    NUM_WORKS = 8
     
     # Re Training
-    TRAINING_CHEKPOINT = '/home/doinglab-hs/ak/training_model.pt'
+    CON_TRAINING_CHEKPOINT = './ckpt/con_epoch_0.pth'
+    CE_TRAINING_CHEKPOINT = './ckpt/ce_epoch_0.pth'
     
     ### INFERNCE_PARAM ###
-    BEST_CLIP_PATH = '/home/doinglab-hs/ak/best_CLIP.pt'
+    BEST_CON_PATH = './ckpt/best_con.pth'
+    BEST_CE_PATH = './ckpt/best_ce.pth'
 # %%
 class Util():
     def encode_label(label, classes_list):
@@ -322,7 +324,7 @@ class SupConDataset(Dataset):
         }
 
 #%%
-class ProjectionHead(nn.Module):
+class Head(nn.Module):
     def __init__(
         self,
         embedding_dim=CFG.image_embedding,
@@ -330,16 +332,17 @@ class ProjectionHead(nn.Module):
         target_dim = 10
     ):
         super().__init__()
-        self.projection = nn.Linear(embedding_dim, embedding_dim, bias=True)
+        self.fc = nn.Linear(embedding_dim, embedding_dim, bias=True)
         self.gelu = nn.ReLU(inplace=True)
-        self.fc = nn.Linear(embedding_dim, projection_dim, bias=True)
-        self.ce_layer = nn.Linear(embedding_dim, target_dim, bias=True) 
+        self.projection = nn.Linear(embedding_dim, projection_dim, bias=True)
+        
+        self.ce_layer = nn.Linear(projection_dim, target_dim, bias=True) 
     
     def forward(self, x, mode):
         if mode == 'first':
-            projected = self.projection(x)
-            x = self.gelu(projected)
             x = self.fc(x)
+            x = self.gelu(x)
+            x = self.projection(x)
             # x = self.dropout(x)
             # x = x + projected
             # x = self.layer_norm(x)
@@ -349,40 +352,46 @@ class ProjectionHead(nn.Module):
             x = self.ce_layer(x)
             return F.normalize(x)
 # %%
-class MultiLabelClassifier(nn.Module):
+class Supcon(nn.Module):
     def __init__(self, n_classes_1, n_classes_2, n_classes_3):
-        super(MultiLabelClassifier, self).__init__()
+        super(Supcon, self).__init__()
         self.model = timm.create_model(model_name=CFG.MODEL_NAME, pretrained=True, num_classes=0, drop_rate=0.3)
         self.model_non_fc = nn.Sequential(*(list(self.model.children())[:-1]))
         
-        self.level_1_emb = ProjectionHead()
-        self.level_2_emb = ProjectionHead()
-        self.level_3_emb = ProjectionHead()
+        self.level_1_emb = Head()
+        self.level_2_emb = Head()
+        self.level_3_emb = Head()
         
-        self.level_1_fc = ProjectionHead(target_dim=n_classes_1)
-        self.level_2_fc = ProjectionHead(target_dim=n_classes_2)
-        self.level_3_fc = ProjectionHead(target_dim=n_classes_3)
+        self.level_1_fc = Head(target_dim=n_classes_1)
+        self.level_2_fc = Head(target_dim=n_classes_2)
+        self.level_3_fc = Head(target_dim=n_classes_3)
 
-    def forward(self, x, mode=None):
+    def freeze(self):
+        self.model_non_fc.requires_grad_(False)
+    
+    def encoder(self, x):
         x = self.model_non_fc(x)
-        
-        if mode == 'first':
-            return {
-                'level_1' : self.level_1_emb(x, mode),
-                'level_2' : self.level_2_emb(x, mode),
-                'level_3' : self.level_3_emb(x, mode)
-            }
+        return x
+    
+    def forward_con(self, x, mode=None):
+        x = self.encoder(x)
+        return {
+            'level_1' : self.level_1_emb(x, mode),
+            'level_2' : self.level_2_emb(x, mode),
+            'level_3' : self.level_3_emb(x, mode)
+        }
             
-        elif mode == 'second':
-            return {
-                'level_1' : self.level_1_fc(x, mode),
-                'level_2' : self.level_2_fc(x, mode),
-                'level_3' : self.level_3_fc(x, mode)
-            }
+    def forward_ce(self, x, mode=None):
+        x = self.encoder(x)
+        return {
+            'level_1' : self.level_1_fc(x, mode),
+            'level_2' : self.level_2_fc(x, mode),
+            'level_3' : self.level_3_fc(x, mode)
+        }
 
 # %%
 class Training():
-    def train(dataloader, model, loss_func, optimizer, epoch, max_epoch, gpu, mode):
+    def con_train(dataloader, model, loss_func, optimizer, epoch, max_epoch, gpu, mode):
 
         model.train()
 
@@ -396,92 +405,113 @@ class Training():
             "acc_2": 0,
             "acc_3": 0
         }
-        if mode == 'first':
-            loss = np.inf
-            with tqdm(total=len(dataloader)) as t:
-                t.set_description(f'[{epoch+1}/{max_epoch}]')
-                
-                # Iteration step
-                for i, img_labels in enumerate(dataloader):
-                    
-                    images = torch.cat([img_labels['image'][0], img_labels['image'][1]], dim=0)
-                    
-                    if gpu is not None:
-                        images = images.cuda(gpu, non_blocking=True)
-                    if torch.cuda.is_available():
-                        for label_key in img_labels['labels'].keys():
-                            img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
-                    
-                    output = model(images, mode)
-                    
-                    # Calculate Loss
-                    batch_size = img_labels['labels']['level_1'].size(0)
-                    loss = Util.criterion_con(loss_func, output, img_labels, batch_size, gpu)
-                    summ["loss"] += loss.item()
-                    
-                    # Train & Update model
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    
-                    dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
-                    t.set_postfix(dict_summ)
-                    t.update()
-                    
-        if mode == 'second':
-            loss = np.inf
-            with tqdm(total=len(dataloader)) as t:
-                t.set_description(f'[{epoch+1}/{max_epoch}]')
-                
-                # Iteration step
-                for i, img_labels in enumerate(dataloader):
-                    
-                    images = img_labels['image']
-                    
-                    if gpu is not None:
-                        images = images.cuda(gpu, non_blocking=True)
-                    if torch.cuda.is_available():
-                        for label_key in img_labels['labels'].keys():
-                            img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
-                    
-                    output = model(images, mode)
-                    
-                    # Calculate Loss
-                    batch_size = img_labels['labels']['level_1'].size(0)
-                    loss = Util.criterion_ce(loss_func, output, img_labels, batch_size, gpu)
-                    summ["loss"] += loss.item()
-                    
-                    # Train & Update model
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    
-                    # _, preds_1 = torch.max(output['level_1'].data, 1)
-                    # correct_1 = (preds_1 == img_labels['labels']['level_1']).sum().item()
-                    # summ["acc_1"] += correct_1 / batch_size
-
-                    # _, preds_2 = torch.max(output['level_2'].data, 1)
-                    # correct_2 = (preds_2 == img_labels['labels']['level_2']).sum().item()
-                    # summ["acc_2"] += correct_2 / batch_size
-
-                    # _, preds_3 = torch.max(output['level_3'].data, 1)
-                    # correct_3 = (preds_3 == img_labels['labels']['level_3']).sum().item()
-                    # summ["acc_3"] += correct_3 / batch_size
-
-
-                    dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
-                    # dict_summ.update({"acc_1" : f'{summ["acc_1"]/(i+1)*100:05.3f}'})
-                    # dict_summ.update({"acc_2" : f'{summ["acc_2"]/(i+1)*100:05.3f}'})
-                    # dict_summ.update({"acc_3" : f'{summ["acc_3"]/(i+1)*100:05.3f}'})
-                    t.set_postfix(dict_summ)
-                    t.update()
-                
-        save_file = './ckpt_epoch_{epoch}.pth'.format(epoch=epoch)
-        Util.save_model(model, optimizer, epoch, loss, save_file)
+        
+        loss = np.inf
+        with tqdm(total=len(dataloader)) as t:
+            t.set_description(f'[{epoch+1}/{max_epoch}]')
             
+            # Iteration step
+            for i, img_labels in enumerate(dataloader):
+                
+                images = torch.cat([img_labels['image'][0], img_labels['image'][1]], dim=0)
+                
+                if gpu is not None:
+                    images = images.cuda(gpu, non_blocking=True)
+                if torch.cuda.is_available():
+                    for label_key in img_labels['labels'].keys():
+                        img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
+                
+                output = model.forward_con(images, mode)
+                
+                # Calculate Loss
+                batch_size = img_labels['labels']['level_1'].size(0)
+                loss = Util.criterion_con(loss_func, output, img_labels, batch_size, gpu)
+                summ["loss"] += loss.item()
+                
+                # Train & Update model
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                
+                dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
+                t.set_postfix(dict_summ)
+                t.update()
+                
+            save_file = './ckpt/con_epoch_{epoch}.pth'.format(epoch=epoch)
+            Util.save_model(model, optimizer, epoch, loss, save_file)
+                    
         performance_dict.update({key: val/(i+1) for key, val in summ.items()})
         print(performance_dict)
-        return performance_dict
+        return model, loss, performance_dict
+    
+    def ce_train(dataloader, model, loss_func, optimizer, epoch, max_epoch, gpu, mode):
+    
+        model.train()
+
+        performance_dict = {
+            "epoch": epoch+1
+        }
+
+        summ = {
+            "loss": 0,
+            "acc_1": 0,
+            "acc_2": 0,
+            "acc_3": 0
+        }
+        
+        loss = np.inf
+        with tqdm(total=len(dataloader)) as t:
+            t.set_description(f'[{epoch+1}/{max_epoch}]')
+            
+            # Iteration step
+            for i, img_labels in enumerate(dataloader):
+                
+                images = img_labels['image'][0]
+                
+                if gpu is not None:
+                    images = images.cuda(gpu, non_blocking=True)
+                if torch.cuda.is_available():
+                    for label_key in img_labels['labels'].keys():
+                        img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
+                
+                output = model(images, mode)
+
+                # Calculate Loss
+                batch_size = img_labels['labels']['level_1'].size(0)
+                loss = Util.criterion_ce(loss_func, output, img_labels, batch_size, gpu)
+                summ["loss"] += loss.item()
+                
+                # Train & Update model
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                
+                _, preds_1 = torch.max(output['level_1'].data, 1)
+                correct_1 = (preds_1 == img_labels['labels']['level_1']).sum().item()
+                summ["acc_1"] += correct_1 / batch_size
+
+                _, preds_2 = torch.max(output['level_2'].data, 1)
+                correct_2 = (preds_2 == img_labels['labels']['level_2']).sum().item()
+                summ["acc_2"] += correct_2 / batch_size
+
+                _, preds_3 = torch.max(output['level_3'].data, 1)
+                correct_3 = (preds_3 == img_labels['labels']['level_3']).sum().item()
+                summ["acc_3"] += correct_3 / batch_size
+
+
+                dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
+                dict_summ.update({"acc_1" : f'{summ["acc_1"]/(i+1)*100:05.3f}'})
+                dict_summ.update({"acc_2" : f'{summ["acc_2"]/(i+1)*100:05.3f}'})
+                dict_summ.update({"acc_3" : f'{summ["acc_3"]/(i+1)*100:05.3f}'})
+                t.set_postfix(dict_summ)
+                t.update()
+                
+            save_file = './ckpt/ce_epoch_{epoch}.pth'.format(epoch=epoch)
+            Util.save_model(model, optimizer, epoch, loss, save_file)
+        
+        performance_dict.update({key: val/(i+1) for key, val in summ.items()})
+        print(performance_dict)
+        return loss, performance_dict
 
     def eval(dataloader, model, loss_func, epoch, max_epoch, gpu):
 
@@ -513,7 +543,7 @@ class Training():
                     output = model(img_labels['image'])
                     
                     # Calculate Loss
-                    loss = Util.criterion(loss_func, output, img_labels)
+                    loss = Util.criterion_ce(loss_func, output, img_labels)
                     summ["loss_val"] += loss.item()
 
                     # Calculate Metrics
@@ -540,7 +570,7 @@ class Training():
         performance_dict.update({key : val/(i+1) for key, val in summ.items()})
         # performance_dict.update({key : val/total_pred[key]*100 for key, val in correct_pred.items()})
         print(performance_dict)
-        return performance_dict
+        return loss, performance_dict
 
 # %%
 class Start():
@@ -625,7 +655,7 @@ class Start():
         print('Num classes_3 :', n_classes_3)
 
         # Create Model
-        model = MultiLabelClassifier(n_classes_1, n_classes_2, n_classes_3)
+        model = Supcon(n_classes_1, n_classes_2, n_classes_3)
         
         # define loss function (criterion) and optimizer
         loss_con = SupConLoss().cuda(gpu)
@@ -674,9 +704,8 @@ class Start():
         # # Re-Training 
         if release_mode == 'retrain':
             checkpoint = torch.load(CFG.TRAINING_CHEKPOINT)
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            model.load_state_dict(checkpoint['model'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
             epoch = checkpoint['epoch']
             loss = checkpoint['loss']
         
@@ -696,13 +725,25 @@ class Start():
 
             # train for one epoch
             mode = 'first'
-            train_metrics_summary = Training.train(train_loader, model, loss_con, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
+            model, con_loss, train_metrics_summary = Training.con_train(train_loader, model, loss_con, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_train.append(train_metrics_summary)
 
-            # evaluate on validation set
-            val_metrics_summary = Training.eval(val_loader, model, epoch, CFG.MAX_EPOCH, gpu, mode)
-            metrics_val.append(val_metrics_summary)
+            # Best Model Save
+            if con_loss.avg < self.best_val_loss:
+                self.best_val_loss = con_loss.avg
+                torch.save(model.state_dict(), CFG.BEST_CON_PATH)
+                print('Save Best Model -!', epoch)
+            
+        #########################################################
         
+        # Load checkpoint.
+        print("==> Resuming from checkpoint..")
+        checkpoint = torch.load(CFG.BEST_CON_PATH)
+        model.load_state_dict(checkpoint)
+        model.freeze()
+        
+        metrics_train = []
+        metrics_val = []
         for epoch in range(CFG.MAX_EPOCH):
             # for shuffling
             if ngpus_per_node > 1:
@@ -713,25 +754,18 @@ class Start():
 
             # train for one epoch
             mode = 'second'
-            train_metrics_summary = Training.train(train_loader, model, loss_ce, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
+            train_metrics_summary = Training.ce_train(train_loader, model, loss_ce, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_train.append(train_metrics_summary)
-
+            
             # evaluate on validation set
-            val_metrics_summary = Training.eval(val_loader, model, epoch, CFG.MAX_EPOCH, gpu, mode)
+            val_loss, val_metrics_summary = Training.eval(val_loader, model, loss_ce, epoch, CFG.MAX_EPOCH, gpu)
             metrics_val.append(val_metrics_summary)
-                
+            
             # Best Model Save
-        #     if val_loss.avg < self.best_val_loss:
-        #         self.best_val_loss = val_loss.avg
-        #         torch.save(model.state_dict(), CFG.BEST_CLIP_PATH)
-        #         print('Save Best Model -!', epoch)
-
-        # lr_scheduler.step(val_loss.avg)
-        
-        with open('CLIP_metrics_train.pickle', 'wb') as fw:
-            pickle.dump(metrics_train, fw)
-        with open('CLIP_metrics_val.pickle', 'wb') as fw:
-            pickle.dump(metrics_val, fw)
+            if val_loss.avg < self.best_val_loss:
+                self.best_val_loss = val_loss.avg
+                torch.save(model.state_dict(), CFG.BEST_CE_PATH)
+                print('Save Best Model -!', epoch)
         
     def ddp(self, model, ngpus_per_node, gpu):
         if not torch.cuda.is_available():
