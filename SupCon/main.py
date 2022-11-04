@@ -144,28 +144,28 @@ class Start():
         # torch.autograd.set_detect_anomaly(True)
         
         # First Training -!
-        # metrics_train = []
-        # metrics_val = []
-        # for epoch in range(max_epoch):
-        #     if release_mode == 'retrain_con':
-        #         epoch = epoch + checkpoint['epoch']
-        #     # for shuffling
-        #     if ngpus_per_node > 1:
-        #         train_sampler.set_epoch(epoch)
-        #     self.adjust_learning_rate(optimizer_con, epoch, ngpus_per_node)
+        metrics_train = []
+        metrics_val = []
+        for epoch in range(max_epoch):
+            if release_mode == 'retrain_con':
+                epoch = epoch + checkpoint['epoch']
+            # for shuffling
+            if ngpus_per_node > 1:
+                train_sampler.set_epoch(epoch)
+            self.adjust_learning_rate(optimizer_con, epoch, ngpus_per_node)
             
-        #     lr = optimizer_con.param_groups[0]["lr"] / ngpus_per_node
+            lr = optimizer_con.param_groups[0]["lr"] / ngpus_per_node
 
-        #     # train for one epoch
-        #     mode = 'first'
-        #     con_loss, train_metrics_summary = Training.con_train(train_loader, model, loss_con, optimizer_con, epoch, max_epoch, gpu, mode)
-        #     metrics_train.append(train_metrics_summary)
+            # train for one epoch
+            mode = 'first'
+            con_loss, train_metrics_summary = Training.con_train(train_loader, model, loss_con, optimizer_con, epoch, max_epoch, gpu, mode)
+            metrics_train.append(train_metrics_summary)
 
-        #     # Best Model Save
-        #     if con_loss.avg < self.best_val_loss:
-        #         self.best_val_loss = con_loss.avg
-        #         torch.save(model.state_dict(), CFG.BEST_CON_PATH)
-        #         print('Save Best Model -!', epoch)
+            # Best Model Save
+            if con_loss.avg < self.best_val_loss:
+                self.best_val_loss = con_loss.avg
+                torch.save(model.state_dict(), CFG.BEST_CON_PATH)
+                print('Save Best Model -!', epoch)
         
         # Load checkpoint.
         print("==> Resuming from checkpoint..")
