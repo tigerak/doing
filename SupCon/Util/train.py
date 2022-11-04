@@ -53,7 +53,7 @@ class Training():
                 t.set_postfix(dict_summ)
                 t.update()
                 
-            save_file = './ckpt/con_epoch_{epoch}.pth'.format(epoch=epoch)
+            save_file = 'D:/my_git/doing/SupCon/ckpt/con_epoch_{epoch}.pth'.format(epoch=epoch)
             Util.save_model(model, optimizer, epoch, loss, save_file)
                     
         performance_dict.update({key: val/(i+1) for key, val in summ.items()})
@@ -92,7 +92,7 @@ class Training():
                     for label_key in img_labels['labels'].keys():
                         img_labels['labels'][label_key] = img_labels['labels'][label_key].cuda(gpu, non_blocking=True)
                 
-                output = model(images, mode)
+                output = model.forward_ce(images, mode)
 
                 # Calculate Loss
                 batch_size = img_labels['labels']['level_1'].size(0)
@@ -126,7 +126,7 @@ class Training():
                 t.set_postfix(dict_summ)
                 t.update()
                 
-            save_file = './ckpt/ce_epoch_{epoch}.pth'.format(epoch=epoch)
+            save_file = 'D:/my_git/doing/SupCon/ckpt/ce_epoch_{epoch}.pth'.format(epoch=epoch)
             Util.save_model(model, optimizer, epoch, loss, save_file)
         
         performance_dict.update({key: val/(i+1) for key, val in summ.items()})
@@ -162,7 +162,7 @@ class Training():
                         for key in img_labels['labels'].keys():
                             img_labels['labels'][key] = img_labels['labels'][key].cuda(gpu, non_blocking=True)
 
-                    output = model(img_labels['image'])
+                    output = model.forward_ce(img_labels['image'])
                     
                     # Calculate Loss
                     loss = Util.criterion_ce(loss_func, output, img_labels)

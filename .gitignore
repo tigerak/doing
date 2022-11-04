@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+ckpt/
+data/
+install.ipynb
+make_db.py
+test.py
+train_df.csv
+val_df.csv

@@ -1,6 +1,5 @@
 class CFG:
-    release_mode = 'inference' # None, 'inference', 'retrain'
-    DB_PATH = '/home/doinglab-hs/ak/db/eng_df.csv'
+    release_mode = None # None, 'inference', 'retrain'
 
     ### TRAIN_PARAM ###
     # Image Encoder
@@ -25,9 +24,9 @@ class CFG:
     NUM_WORKS = 8
     
     # Re Training
-    CON_TRAINING_CHEKPOINT = './ckpt/con_epoch_0.pth'
-    CE_TRAINING_CHEKPOINT = './ckpt/ce_epoch_0.pth'
+    CON_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/con_epoch_0.pth'
+    CE_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/ce_epoch_0.pth'
     
     ### INFERNCE_PARAM ###
-    BEST_CON_PATH = './ckpt/best_con.pth'
-    BEST_CE_PATH = './ckpt/best_ce.pth'
+    BEST_CON_PATH = 'D:/my_git/doing/SupCon/ckpt/best_con.pth'
+    BEST_CE_PATH = 'D:/my_git/doing/SupCon/ckpt/best_ce.pth'
