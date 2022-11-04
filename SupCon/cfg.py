@@ -1,5 +1,6 @@
 class CFG:
     release_mode = None # None, 'inference', 'retrain_con'
+    LEARNING_STEP = ['second'] # ['first', 'second']
 
     ### TRAIN_PARAM ###
     # Image Encoder
@@ -10,7 +11,6 @@ class CFG:
     pretrained = True
     
     # ProjectionHead
-    num_projection_layers = 1
     projection_dim = 512
     dropout = 0.1
     
