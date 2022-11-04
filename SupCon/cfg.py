@@ -1,5 +1,5 @@
 class CFG:
-    release_mode = None # None, 'inference', 'retrain'
+    release_mode = None # None, 'inference', 'retrain_con'
 
     ### TRAIN_PARAM ###
     # Image Encoder

@@ -13,11 +13,12 @@ class Head(nn.Module):
         target_dim = 10
     ):
         super().__init__()
+        # first
         self.fc = nn.Linear(embedding_dim, embedding_dim, bias=True)
         self.gelu = nn.ReLU(inplace=True)
         self.projection = nn.Linear(embedding_dim, projection_dim, bias=True)
-        
-        self.ce_layer = nn.Linear(projection_dim, target_dim, bias=True) 
+        # second
+        self.ce_layer = nn.Linear(embedding_dim, target_dim, bias=True) 
     
     def forward(self, x, mode):
         if mode == 'first':

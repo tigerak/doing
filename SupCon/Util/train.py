@@ -58,7 +58,7 @@ class Training():
                     
         performance_dict.update({key: val/(i+1) for key, val in summ.items()})
         print(performance_dict)
-        return model, loss_meter, performance_dict
+        return loss_meter, performance_dict
     
     def ce_train(dataloader, model, loss_func, optimizer, epoch, max_epoch, gpu, mode):
     
@@ -96,7 +96,7 @@ class Training():
 
                 # Calculate Loss
                 batch_size = img_labels['labels']['level_1'].size(0)
-                loss = Util.criterion_ce(loss_func, output, img_labels, batch_size, gpu)
+                loss = Util.criterion_ce(loss_func, output, img_labels)
                 summ["loss"] += loss.item()
                 
                 # Train & Update model

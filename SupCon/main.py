@@ -97,9 +97,9 @@ class Start():
                 and gpu % ngpus_per_node == 0):
             print("PyTorch Version :", torch.__version__)
             
-        n_classes_1 = len(train_df['level_1'].unique())
-        n_classes_2 = len(train_df['level_2'].unique())
-        n_classes_3 = len(train_df['level_3'].unique())
+        n_classes_1 = len(train_df['idx_1'].unique())
+        n_classes_2 = len(train_df['idx_2'].unique())
+        n_classes_3 = len(train_df['idx_3'].unique())
         print('Num classes_1 :', n_classes_1)
         print('Num classes_2 :', n_classes_2)
         print('Num classes_3 :', n_classes_3)
@@ -112,35 +112,15 @@ class Start():
         loss_ce = nn.CrossEntropyLoss().cuda(gpu)
     
         # Optimizer
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-        
-        # Scheduler
-        def adjust_learning_rate(optimizer, epoch, ngpus_per_node):
-            if epoch < 2:
-                lr = .001*ngpus_per_node
-            elif epoch < 4:
-                lr = .0007*ngpus_per_node
-            elif epoch < 6:
-                lr = .0004*ngpus_per_node
-            elif epoch < 8:
-                lr = .0002*ngpus_per_node
-            elif epoch < 10:
-                lr = .0001*ngpus_per_node
-            elif epoch < 50:
-                lr = .00005*ngpus_per_node
-            elif epoch < 55:
-                lr = .00001*ngpus_per_node
-            else:
-                lr = .000001*ngpus_per_node
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+        optimizer_con = torch.optim.Adam(model.parameters(), lr=1e-3)
+        optimizer_ce = torch.optim.Adam(model.parameters(), lr=1e-3)
         
         # DistributedDataParallel
         model = self.ddp(model, ngpus_per_node, gpu)
         
         # Inference
         # if release_mode == 'inference':
-        #     checkpoint = torch.load(CFG.BEST_CLIP_PATH)
+        #     checkpoint = torch.load(CFG.BEST_CE_PATH)
         #     model.load_state_dict(checkpoint)
             
         #     metrics = Inference(model=model, 
@@ -151,40 +131,41 @@ class Start():
         #         pickle.dump(metrics, fw)
         #     return ###
         
+        max_epoch = CFG.MAX_EPOCH 
         # # Re-Training 
-        if release_mode == 'retrain':
-            checkpoint = torch.load(CFG.TRAINING_CHEKPOINT)
+        if release_mode == 'retrain_con':
+            checkpoint = torch.load(CFG.CON_TRAINING_CHEKPOINT)
             model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            epoch = checkpoint['epoch']
+            optimizer_con.load_state_dict(checkpoint['optimizer'])
+            max_epoch = CFG.MAX_EPOCH - checkpoint['epoch']
             loss = checkpoint['loss']
         
         # Loss가 Nan값이 되는 부분 탐지
         # torch.autograd.set_detect_anomaly(True)
         
-        # Training Start -!
-        metrics_train = []
-        metrics_val = []
-        for epoch in range(CFG.MAX_EPOCH):
-            # for shuffling
-            if ngpus_per_node > 1:
-                train_sampler.set_epoch(epoch)
-            adjust_learning_rate(optimizer, epoch, ngpus_per_node)
+        # First Training -!
+        # metrics_train = []
+        # metrics_val = []
+        # for epoch in range(max_epoch):
+        #     if release_mode == 'retrain_con':
+        #         epoch = epoch + checkpoint['epoch']
+        #     # for shuffling
+        #     if ngpus_per_node > 1:
+        #         train_sampler.set_epoch(epoch)
+        #     self.adjust_learning_rate(optimizer_con, epoch, ngpus_per_node)
             
-            lr = optimizer.param_groups[0]["lr"] / ngpus_per_node
+        #     lr = optimizer_con.param_groups[0]["lr"] / ngpus_per_node
 
-            # train for one epoch
-            mode = 'first'
-            model, con_loss, train_metrics_summary = Training.con_train(train_loader, model, loss_con, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
-            metrics_train.append(train_metrics_summary)
+        #     # train for one epoch
+        #     mode = 'first'
+        #     con_loss, train_metrics_summary = Training.con_train(train_loader, model, loss_con, optimizer_con, epoch, max_epoch, gpu, mode)
+        #     metrics_train.append(train_metrics_summary)
 
-            # Best Model Save
-            if con_loss.avg < self.best_val_loss:
-                self.best_val_loss = con_loss.avg
-                torch.save(model.state_dict(), CFG.BEST_CON_PATH)
-                print('Save Best Model -!', epoch)
-            
-        #########################################################
+        #     # Best Model Save
+        #     if con_loss.avg < self.best_val_loss:
+        #         self.best_val_loss = con_loss.avg
+        #         torch.save(model.state_dict(), CFG.BEST_CON_PATH)
+        #         print('Save Best Model -!', epoch)
         
         # Load checkpoint.
         print("==> Resuming from checkpoint..")
@@ -192,19 +173,20 @@ class Start():
         model.load_state_dict(checkpoint)
         model.freeze()
         
+        # Second Training -!
         metrics_train = []
         metrics_val = []
         for epoch in range(CFG.MAX_EPOCH):
             # for shuffling
             if ngpus_per_node > 1:
                 train_sampler.set_epoch(epoch)
-            adjust_learning_rate(optimizer, epoch, ngpus_per_node)
+            self.adjust_learning_rate(optimizer_ce, epoch, ngpus_per_node)
             
-            lr = optimizer.param_groups[0]["lr"] / ngpus_per_node
+            lr = optimizer_ce.param_groups[0]["lr"] / ngpus_per_node
 
             # train for one epoch
             mode = 'second'
-            ce_loss, train_metrics_summary = Training.ce_train(train_loader, model, loss_ce, optimizer, epoch, CFG.MAX_EPOCH, gpu, mode)
+            ce_loss, train_metrics_summary = Training.ce_train(train_loader, model, loss_ce, optimizer_ce, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_train.append(train_metrics_summary)
             
             # evaluate on validation set
@@ -217,6 +199,27 @@ class Start():
                 torch.save(model.state_dict(), CFG.BEST_CE_PATH)
                 print('Save Best Model -!', epoch)
         
+    # Scheduler
+    def adjust_learning_rate(self, optimizer, epoch, ngpus_per_node):
+        if epoch < 2:
+            lr = .001*ngpus_per_node
+        elif epoch < 4:
+            lr = .0007*ngpus_per_node
+        elif epoch < 6:
+            lr = .0004*ngpus_per_node
+        elif epoch < 8:
+            lr = .0002*ngpus_per_node
+        elif epoch < 10:
+            lr = .0001*ngpus_per_node
+        elif epoch < 50:
+            lr = .00005*ngpus_per_node
+        elif epoch < 55:
+            lr = .00001*ngpus_per_node
+        else:
+            lr = .000001*ngpus_per_node
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+                
     def ddp(self, model, ngpus_per_node, gpu):
         if not torch.cuda.is_available():
             print('using CPU, this will be slow')

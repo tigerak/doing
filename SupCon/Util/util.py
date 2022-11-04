@@ -21,7 +21,7 @@ class TwoCropTransform:
 
 class SupConDataset(Dataset):
     def __init__(self, annotations_file, transform=None):
-        self.img_labels = annotations_file[['path', 'level_1', 'level_2', 'level_3']]
+        self.img_labels = annotations_file[['path', 'idx_1', 'idx_2', 'idx_3']]
         self.transform = transform
 
     def __len__(self):
@@ -103,7 +103,7 @@ class Util():
                                 labels=img_labels['labels'][key])
         return losses
     
-    def criterion_ce(loss_func, outputs, img_labels, batch_size, gpu):
+    def criterion_ce(loss_func, outputs, img_labels):
         losses = 0
         for i, key in enumerate(outputs):
             losses += loss_func(outputs[key], img_labels['labels'][key])
