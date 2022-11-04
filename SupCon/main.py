@@ -25,6 +25,7 @@ from Model.model import Supcon
 
 class Start():
     def __init__(self):
+        self.best_con_loss = np.inf
         self.best_val_loss = np.inf
         self.best_val_acc = 0
 
@@ -162,8 +163,8 @@ class Start():
             metrics_train.append(train_metrics_summary)
 
             # Best Model Save
-            if con_loss.avg < self.best_val_loss:
-                self.best_val_loss = con_loss.avg
+            if con_loss.avg < self.best_con_loss:
+                self.best_con_loss = con_loss.avg
                 torch.save(model.state_dict(), CFG.BEST_CON_PATH)
                 print('Save Best Model -!', epoch)
         
@@ -190,7 +191,7 @@ class Start():
             metrics_train.append(train_metrics_summary)
             
             # evaluate on validation set
-            val_loss, val_metrics_summary = Training.eval(val_loader, model, loss_ce, epoch, CFG.MAX_EPOCH, gpu)
+            val_loss, val_metrics_summary = Training.eval(val_loader, model, loss_ce, epoch, CFG.MAX_EPOCH, gpu, mode)
             metrics_val.append(val_metrics_summary)
             
             # Best Model Save

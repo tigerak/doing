@@ -133,7 +133,7 @@ class Training():
         print(performance_dict)
         return loss_meter, performance_dict
 
-    def eval(dataloader, model, loss_func, epoch, max_epoch, gpu):
+    def eval(dataloader, model, loss_func, epoch, max_epoch, gpu, mode):
 
         model.eval()
         
@@ -162,9 +162,10 @@ class Training():
                         for key in img_labels['labels'].keys():
                             img_labels['labels'][key] = img_labels['labels'][key].cuda(gpu, non_blocking=True)
 
-                    output = model.forward_ce(img_labels['image'])
+                    output = model.forward_ce(img_labels['image'], mode)
                     
                     # Calculate Loss
+                    batch_size = img_labels['labels']['level_1'].size(0)
                     loss = Util.criterion_ce(loss_func, output, img_labels)
                     summ["loss_val"] += loss.item()
 

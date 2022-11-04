@@ -19,7 +19,7 @@ class CFG:
     
     # Main
     VISIBLE_GPU = "0"
-    MAX_EPOCH = 1
+    MAX_EPOCH = 20
     BATCH_SIZE = 8
     NUM_WORKS = 8
     
