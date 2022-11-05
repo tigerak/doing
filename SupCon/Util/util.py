@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import os
 
 from PIL import Image
 
@@ -156,6 +157,8 @@ class Util():
 
 
     def save_model(model, optimizer, epoch, loss, save_file):
+        if not os.path.exists(CFG.ROOT_CHEKPOINT):
+            os.mkdir(CFG.ROOT_CHEKPOINT)
         print('==> Saving...')
         state = {
             'model': model.state_dict(),

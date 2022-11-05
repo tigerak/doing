@@ -24,9 +24,10 @@ class CFG:
     NUM_WORKS = 8
     
     # Re Training
-    CON_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/con_epoch_2.pth'
-    CE_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/ce_epoch_0.pth'
+    ROOT_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/'
+    CON_TRAINING_CHEKPOINT = ROOT_CHEKPOINT + 'con_epoch_2.pth'
+    CE_TRAINING_CHEKPOINT = ROOT_CHEKPOINT + 'ce_epoch_0.pth'
     
     ### INFERNCE_PARAM ###
-    BEST_CON_PATH = 'D:/my_git/doing/SupCon/ckpt/best_con.pth'
-    BEST_CE_PATH = 'D:/my_git/doing/SupCon/ckpt/best_ce.pth'
+    BEST_CON_PATH = ROOT_CHEKPOINT + 'best_con.pth'
+    BEST_CE_PATH = ROOT_CHEKPOINT + 'best_ce.pth'
