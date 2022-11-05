@@ -14,20 +14,24 @@ class Head(nn.Module):
     ):
         super().__init__()
         # first
-        self.fc = nn.Linear(embedding_dim, embedding_dim, bias=True)
-        self.gelu = nn.ReLU(inplace=True)
         self.projection = nn.Linear(embedding_dim, projection_dim, bias=True)
+        self.gelu = nn.GELU()
+        self.fc = nn.Linear(projection_dim, projection_dim, bias=True)
         # second
         self.ce_layer = nn.Linear(embedding_dim, target_dim, bias=True) 
+        
+        self.dropout = nn.Dropout(CFG.dropout)
+        # self.layer_norm = nn.LayerNorm(projection_dim)
     
     def forward(self, x, mode):
         if mode == 'first':
+            projected = self.projection(x)
+            x = self.gelu(projected)
             x = self.fc(x)
-            x = self.gelu(x)
-            x = self.projection(x)
-            # x = self.dropout(x)
-            # x = x + projected
+            x = self.dropout(x)
+            x = x + projected
             # x = self.layer_norm(x)
+            # return x
             return F.normalize(x)
     
         elif mode == 'second':

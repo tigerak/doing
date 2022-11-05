@@ -29,7 +29,7 @@ class Start():
         self.best_val_loss = np.inf
         self.best_val_acc = 0
 
-    def StartTraining(self, release_mode=False):
+    def StartTraining(self):
         torch.manual_seed(42)
         torch.cuda.manual_seed_all(42)
         cudnn.deterministic = True
@@ -52,12 +52,12 @@ class Start():
             # Use torch.multiprocessing.spawn to launch distributed processes: the
             # main_worker process function
             # torch.cuda.manual_seed_all(42) # if use multi-GPU
-            mp.spawn(self.main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, release_mode))
+            mp.spawn(self.main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node))
         else:
             # Simply call main_worker function
-            self.main_worker(int(CFG.VISIBLE_GPU), ngpus_per_node, release_mode)
+            self.main_worker(int(CFG.VISIBLE_GPU), ngpus_per_node)
 
-    def main_worker(self, gpu, ngpus_per_node, release_mode):
+    def main_worker(self, gpu, ngpus_per_node):
         ImageFile.LOAD_TRUNCATED_IMAGES = True
         warnings.filterwarnings('ignore')
 
@@ -120,7 +120,7 @@ class Start():
         model = self.ddp(model, ngpus_per_node, gpu)
         
         # Inference
-        # if release_mode == 'inference':
+        # if CFG.RELEASE_MODE == 'inference':
         #     checkpoint = torch.load(CFG.BEST_CE_PATH)
         #     model.load_state_dict(checkpoint)
             
@@ -132,25 +132,25 @@ class Start():
         #         pickle.dump(metrics, fw)
         #     return ###
         
+        # Loss가 Nan값이 되는 부분 탐지
+        # torch.autograd.set_detect_anomaly(True)
+        
         if 'first' in CFG.LEARNING_STEP:
-            max_epoch = CFG.MAX_EPOCH 
-            # # Re-Training 
-            if release_mode == 'retrain_con':
-                checkpoint = torch.load(CFG.CON_TRAINING_CHEKPOINT)
-                model.load_state_dict(checkpoint['model'])
-                optimizer_con.load_state_dict(checkpoint['optimizer'])
-                max_epoch = CFG.MAX_EPOCH - checkpoint['epoch']
-                loss = checkpoint['loss']
-            
-            # Loss가 Nan값이 되는 부분 탐지
-            # torch.autograd.set_detect_anomaly(True)
             
             # First Training -!
             metrics_train = []
-            metrics_val = []
-            for epoch in range(max_epoch):
-                if release_mode == 'retrain_con':
-                    epoch = epoch + checkpoint['epoch']
+            for epoch in range(CFG.MAX_EPOCH):
+                
+                # Re-Training Opt.
+                max_epoch = CFG.MAX_EPOCH
+                if CFG.RELEASE_MODE == 'retrain':
+                    ckpt = self.retrain(model, optimizer_con, CFG.CON_TRAINING_CHEKPOINT)
+                    model = ckpt['model'], 
+                    optimizer_con = ckpt['optimizer'], 
+                    loss_con = ckpt['loss'], 
+                    max_epoch = ckpt['max_epoch'], 
+                    epoch = ckpt['epoch']
+                    
                 # for shuffling
                 if ngpus_per_node > 1:
                     train_sampler.set_epoch(epoch)
@@ -180,6 +180,17 @@ class Start():
             metrics_train = []
             metrics_val = []
             for epoch in range(CFG.MAX_EPOCH):
+                
+                # Re-Training Opt.
+                max_epoch = CFG.MAX_EPOCH
+                if CFG.RELEASE_MODE == 'retrain':
+                    ckpt = self.retrain(model, optimizer_con, CFG.CE_TRAINING_CHEKPOINT)
+                    model = ckpt['model'], 
+                    optimizer_ce = ckpt['optimizer'], 
+                    loss_ce = ckpt['loss'], 
+                    max_epoch = ckpt['max_epoch'], 
+                    epoch = ckpt['epoch']
+                    
                 # for shuffling
                 if ngpus_per_node > 1:
                     train_sampler.set_epoch(epoch)
@@ -257,7 +268,22 @@ class Start():
         print('Number of Parameters : ', sum(p.numel() for p in model.parameters() if p.requires_grad))
         return model
                 
+    def retrain(self, model, optimizer, ckpt):
+        checkpoint = torch.load(ckpt)
+        model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        loss = checkpoint['loss']
+        max_epoch = CFG.MAX_EPOCH + checkpoint['epoch']
+        epoch = epoch + checkpoint['epoch']
+        
+        return {
+            'model' : model, 
+            'optimizer' : optimizer, 
+            'loss' : loss,
+            'max_epoch' : max_epoch,
+            'epoch' : epoch
+            }
 # %%
 if __name__ == "__main__":
     start = Start()
-    start.StartTraining(release_mode=CFG.release_mode)
+    start.StartTraining()

@@ -25,15 +25,10 @@ import timm
 
 # %%
 class CFG:
-    #TRAIN_PATH
-    ROOT = "/disk1/first/Food/tree_220915/"
-    TRAIN = "train/"
-    VAL = "validation/"
-    
     #"TRAIN_PARAM
     RESIZE = 300
-    MODEL_NAME = "tf_efficientnetv2_m_in21ft1k" 
-    VISIBLE_GPU = "0, 1"
+    MODEL_NAME = "tf_efficientnetv2_s_in21ft1k" 
+    VISIBLE_GPU = "0"
     MAX_EPOCH = 20
     BATCH_SIZE = 8
     NUM_WORKS = 8
@@ -83,7 +78,7 @@ class Util():
 # %%
 class ImageDataset(Dataset):
     def __init__(self, annotations_file, class_list_1, class_list_2, class_list_3, transform=None):
-        self.img_labels = annotations_file[['file_name', 'level_1', 'level_2', 'level_3']]
+        self.img_labels = annotations_file[['path', 'idx_1', 'idx_2', 'idx_3']]
         self.class_list_1 = class_list_1
         self.class_list_2 = class_list_2
         self.class_list_3 = class_list_3
@@ -313,13 +308,12 @@ def main_worker(gpu, ngpus_per_node, release_mode):
                                 world_size=ngpus_per_node, rank=gpu)
     
     # DataSet & DataLoader
-    annotations_df = pd.read_csv('/home/doinglab-hs/ak/annotations_df.csv')
-    train_df = annotations_df[annotations_df['type']=='TRAIN']
-    val_df = annotations_df[annotations_df['type']=='VAL']
+    train_df = pd.read_csv('D:/my_git/doing/train_df.csv')
+    val_df = pd.read_csv('D:/my_git/doing/val_df.csv')
 
-    class_list_1 = train_df['level_1'].unique()
-    class_list_2 = train_df['level_2'].unique()
-    class_list_3 = train_df['level_3'].unique()
+    class_list_1 = train_df['idx_1'].unique()
+    class_list_2 = train_df['idx_2'].unique()
+    class_list_3 = train_df['idx_3'].unique()
     n_classes_1 = len(class_list_1)
     n_classes_2 = len(class_list_2)
     n_classes_3 = len(class_list_3)
@@ -451,4 +445,3 @@ def main_worker(gpu, ngpus_per_node, release_mode):
 # %%
 if __name__ == "__main__":
     StartTraining()
-# %%

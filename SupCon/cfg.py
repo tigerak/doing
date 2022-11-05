@@ -1,10 +1,10 @@
 class CFG:
-    release_mode = None # None, 'inference', 'retrain_con'
-    LEARNING_STEP = ['second'] # ['first', 'second']
+    RELEASE_MODE = None # None, 'inference', 'retrain'
+    LEARNING_STEP = ['first', 'second'] # ['first', 'second']
 
     ### TRAIN_PARAM ###
     # Image Encoder
-    RESIZE = 224
+    RESIZE = 180
     MODEL_NAME = "tf_efficientnetv2_s_in21ft1k" 
     image_embedding = 1280
     
@@ -24,7 +24,7 @@ class CFG:
     NUM_WORKS = 8
     
     # Re Training
-    CON_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/con_epoch_0.pth'
+    CON_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/con_epoch_2.pth'
     CE_TRAINING_CHEKPOINT = 'D:/my_git/doing/SupCon/ckpt/ce_epoch_0.pth'
     
     ### INFERNCE_PARAM ###

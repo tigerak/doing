@@ -37,7 +37,7 @@ class CFG:
     ### TRAIN_PARAM ###
     # Image Encoder
     RESIZE = 300
-    MODEL_NAME = "tf_efficientnetv2_m_in21ft1k" 
+    MODEL_NAME = "tf_efficientnetv2_s_in21ft1k" 
     image_embedding = 1280
     image_encoder_lr = 1e-4
     
@@ -237,7 +237,7 @@ class ProjectionHead(nn.Module):
         self.projection = nn.Linear(embedding_dim, projection_dim)
         self.gelu = nn.GELU()
         self.fc = nn.Linear(projection_dim, projection_dim)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(CFG.dropout)
         self.layer_norm = nn.LayerNorm(projection_dim)
     
     def forward(self, x):
