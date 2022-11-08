@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import pandas as pd
 import os
@@ -137,19 +138,20 @@ class Start():
         
         if 'first' in CFG.LEARNING_STEP:
             
+            # Re-Training Opt.
+            retrain_epoch = 0
+            if CFG.RELEASE_MODE == 'retrain':
+                checkpoint = torch.load(CFG.CON_TRAINING_CHEKPOINT)
+                model.load_state_dict(checkpoint['model']) 
+                optimizer_ce.load_state_dict(checkpoint['optimizer'])
+                retrain_loss = checkpoint['loss']
+                retrain_epoch = checkpoint['epoch']
+                
             # First Training -!
             metrics_train = []
             for epoch in range(CFG.MAX_EPOCH):
-                
-                # Re-Training Opt.
-                max_epoch = CFG.MAX_EPOCH
-                if CFG.RELEASE_MODE == 'retrain':
-                    ckpt = self.retrain(model, optimizer_con, CFG.CON_TRAINING_CHEKPOINT)
-                    model = ckpt['model'], 
-                    optimizer_con = ckpt['optimizer'], 
-                    loss_con = ckpt['loss'], 
-                    max_epoch = ckpt['max_epoch'], 
-                    epoch = ckpt['epoch']
+                max_epoch = CFG.MAX_EPOCH + retrain_epoch
+                epoch = epoch + retrain_epoch
                     
                 # for shuffling
                 if ngpus_per_node > 1:
@@ -176,21 +178,22 @@ class Start():
             model.load_state_dict(checkpoint)
             model.freeze()
             
+            # Re-Training Opt.
+            retrain_epoch = 0
+            if CFG.RELEASE_MODE == 'retrain':
+                checkpoint = torch.load(CFG.CE_TRAINING_CHEKPOINT)
+                model.load_state_dict(checkpoint['model']) 
+                optimizer_ce.load_state_dict(checkpoint['optimizer'])
+                retrain_loss = checkpoint['loss']
+                retrain_epoch = checkpoint['epoch']
+            
             # Second Training -!
             metrics_train = []
             metrics_val = []
             for epoch in range(CFG.MAX_EPOCH):
+                max_epoch = CFG.MAX_EPOCH + retrain_epoch
+                epoch = epoch + retrain_epoch
                 
-                # Re-Training Opt.
-                max_epoch = CFG.MAX_EPOCH
-                if CFG.RELEASE_MODE == 'retrain':
-                    ckpt = self.retrain(model, optimizer_con, CFG.CE_TRAINING_CHEKPOINT)
-                    model = ckpt['model'], 
-                    optimizer_ce = ckpt['optimizer'], 
-                    loss_ce = ckpt['loss'], 
-                    max_epoch = ckpt['max_epoch'], 
-                    epoch = ckpt['epoch']
-                    
                 # for shuffling
                 if ngpus_per_node > 1:
                     train_sampler.set_epoch(epoch)
@@ -200,11 +203,11 @@ class Start():
 
                 # train for one epoch
                 mode = 'second'
-                ce_loss, train_metrics_summary = Training.ce_train(train_loader, model, loss_ce, optimizer_ce, epoch, CFG.MAX_EPOCH, gpu, mode)
+                ce_loss, train_metrics_summary = Training.ce_train(train_loader, model, loss_ce, optimizer_ce, epoch, max_epoch, gpu, mode)
                 metrics_train.append(train_metrics_summary)
                 
                 # evaluate on validation set
-                val_loss, val_metrics_summary = Training.eval(val_loader, model, loss_ce, epoch, CFG.MAX_EPOCH, gpu, mode)
+                val_loss, val_metrics_summary = Training.eval(val_loader, model, loss_ce, epoch, max_epoch, gpu, mode)
                 metrics_val.append(val_metrics_summary)
                 
                 # Best Model Save
@@ -267,23 +270,8 @@ class Start():
 
         print('Number of Parameters : ', sum(p.numel() for p in model.parameters() if p.requires_grad))
         return model
-                
-    def retrain(self, model, optimizer, ckpt):
-        checkpoint = torch.load(ckpt)
-        model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        loss = checkpoint['loss']
-        max_epoch = CFG.MAX_EPOCH + checkpoint['epoch']
-        epoch = epoch + checkpoint['epoch']
-        
-        return {
-            'model' : model, 
-            'optimizer' : optimizer, 
-            'loss' : loss,
-            'max_epoch' : max_epoch,
-            'epoch' : epoch
-            }
-# %%
+
+
 if __name__ == "__main__":
     start = Start()
     start.StartTraining()
