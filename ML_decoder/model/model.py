@@ -1,49 +1,45 @@
-#%%
 import torch.nn as nn
-
 import timm
 
+from model.ml_decoder import MLDecoder
 from cfg import CFG
 
-print(CFG.MODEL_NAME)
-class MultilabelImageClassification(nn.Module):
+class MLDcoderClassification(nn.Module):
     def __init__(self, n_level_1, n_level_2, n_level_3):
-        super(MultilabelImageClassification, self).__init__()
-        self.model = timm.create_model(model_name="tf_efficientnetv2_s_in21ft1k", pretrained=True, num_classes=0, drop_rate=0.3)
-        self.model_non_fc = nn.Sequential(*(list(self.model.children())[:-2]))
+        super(MLDcoderClassification, self).__init__()
+        self.backborn = timm.create_model(model_name=CFG.MODEL_NAME, pretrained=True, num_classes=0, drop_rate=0.3)
+        self.backborn_non_gap = nn.Sequential(*(list(self.backborn.children())[:-2]))
         
-        self.head = nn.Sequential(
-            
+        self.level_1_decoder = nn.Sequential(
+            nn.Identity(),
+            MLDecoder(num_classes=n_level_1,
+                      initial_num_features=1280,
+                      num_of_groups=1,
+                      decoder_embedding=768,
+                      zsl=0)
         )
-
-        self.level_1_fc = nn.Sequential(
-            nn.Linear(in_features=1280, out_features=n_level_1, bias=True)
+        self.level_2_decoder = nn.Sequential(
+            nn.Identity(),
+            MLDecoder(num_classes=n_level_2,
+                      initial_num_features=1280,
+                      num_of_groups=1,
+                      decoder_embedding=768,
+                      zsl=0)
         )
-        self.level_2_fc = nn.Sequential(
-            nn.Linear(in_features=1280, out_features=n_level_2, bias=True)
+        self.level_3_decoder = nn.Sequential(
+            nn.Identity(),
+            MLDecoder(num_classes=n_level_3,
+                      initial_num_features=1280,
+                      num_of_groups=1,
+                      decoder_embedding=768,
+                      zsl=0)
         )
-        self.level_3_fc = nn.Sequential(
-            nn.Linear(in_features=1280, out_features=n_level_3, bias=True)
-        )
-
+        
     def forward(self, x):
-        x = self.model_non_fc(x)
+        x = self.backborn_non_gap(x)
 
         return {
-            'level_1' : self.level_1_fc(x),
-            'level_2' : self.level_2_fc(x),
-            'level_3' : self.level_3_fc(x)
+            'level_1' : self.level_1_decoder(x),
+            'level_2' : self.level_2_decoder(x),
+            'level_3' : self.level_3_decoder(x)
         }
-        
-#%%
-import timm
-
-from ml_decoder import add_ml_decoder_head
-
-model = timm.create_model(model_name="tf_efficientnetv2_s_in21ft1k", pretrained=True, num_classes=0, drop_rate=0.3)
-
-model = add_ml_decoder_head(model=model,
-                            num_classes=2424,
-                            num_of_groups=3)
-
-print(model)

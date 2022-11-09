@@ -5,25 +5,6 @@ from torch import nn, Tensor
 from torch.nn.modules.transformer import _get_activation_fn
 
 
-def add_ml_decoder_head(model, num_classes=-1, num_of_groups=-1, decoder_embedding=768, zsl=0):
-    if num_classes == -1:
-        num_classes = model.num_classes
-    num_features = model.num_features
-    if hasattr(model, 'global_pool') and hasattr(model, 'classifier'):  # tf_efficientnetv2_s_in21ft1k
-        model.global_pool = nn.Identity()
-        del model.classifier
-        model.classifier = MLDecoder(num_classes=num_classes, 
-                                     initial_num_features=num_features, 
-                                     num_of_groups=num_of_groups,
-                                     decoder_embedding=decoder_embedding, 
-                                     zsl=zsl)
-    else:
-        print("model is not suited for ml-decoder")
-        exit(-1)
-
-    return model
-
-
 class TransformerDecoderLayerOptimal(nn.Module):
     def __init__(self, d_model, nhead=8, dim_feedforward=2048, dropout=0.1, 
                  activation="relu", layer_norm_eps=1e-5):

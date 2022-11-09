@@ -20,7 +20,8 @@ import torchvision.transforms as T
 
 from cfg import CFG
 from util.util import ImageDataset
-from model.model import MultilabelImageClassification
+from util.loss import ASLSingleLabel
+from model.model import MLDcoderClassification
 from util.train import Training
 
 best_val_loss = np.inf
@@ -85,11 +86,14 @@ def main_worker(gpu, ngpus_per_node, release_mode):
     train_transform = T.Compose([
         # T.ToPILImage(mode='RGB'),
         T.Resize((CFG.RESIZE, CFG.RESIZE)),
-        T.RandomAffine(degrees=90, translate=(.12,.12), scale=(.85, 1.15), shear=.18, fill=255),
-        T.ToTensor(),
+        T.GaussianBlur(kernel_size=(5, 5)), 
+        T.RandomVerticalFlip(), 
+        T.RandomHorizontalFlip(),
+        T.RandomRotation(degrees=(0, 180)),
+        T.ToTensor()
         # T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
-    train_dataset = ImageDataset(train_df, class_list_1, class_list_2, class_list_3, transform=train_transform)
+    train_dataset = ImageDataset(train_df, transform=train_transform)
 
     if ngpus_per_node > 1:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -106,7 +110,7 @@ def main_worker(gpu, ngpus_per_node, release_mode):
         T.Resize((CFG.RESIZE, CFG.RESIZE)),
         T.ToTensor()
     ])
-    val_dataset = ImageDataset(val_df, class_list_1, class_list_2, class_list_3, transform=val_transform)
+    val_dataset = ImageDataset(val_df, transform=val_transform)
     val_loader = DataLoader(
         val_dataset, batch_size=CFG.BATCH_SIZE, shuffle=False, 
         num_workers=CFG.NUM_WORKS, pin_memory=True
@@ -117,7 +121,7 @@ def main_worker(gpu, ngpus_per_node, release_mode):
         print("PyTorch Version :", torch.__version__)
 
     # Create Model
-    model = MultilabelImageClassification(n_classes_1, n_classes_2, n_classes_3)
+    model = MLDcoderClassification(n_classes_1, n_classes_2, n_classes_3)
     
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -152,10 +156,10 @@ def main_worker(gpu, ngpus_per_node, release_mode):
     print('Number of Parameters : ', sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # Loss function
-    loss_func = nn.BCEWithLogitsLoss().cuda(gpu)
+    loss_func = ASLSingleLabel(gamma_neg=4, gamma_pos=0).cuda(gpu)
 
     # Optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=0)
 
      # scheduler
     def adjust_learning_rate(optimizer, epoch, ngpus_per_node):
@@ -204,6 +208,6 @@ def main_worker(gpu, ngpus_per_node, release_mode):
     with open('bcewl_metrics_val.pickle', 'wb') as fw:
         pickle.dump(metrics_val, fw)
     
-# %%
+    
 if __name__ == "__main__":
     StartTraining()

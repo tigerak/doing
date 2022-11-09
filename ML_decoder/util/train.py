@@ -15,12 +15,9 @@ class Training():
 
         summ = {
             "loss": 0,
-            "F2_1" : 0,
-            "Acc_1" : 0,
-            "F2_2" : 0,
-            "Acc_2" : 0,
-            "F2_3" : 0,
-            "Acc_3" : 0
+            "acc_1" : 0,
+            "acc_2" : 0,
+            "acc_3" : 0
         }
 
         with tqdm(total=len(dataloader)) as t:
@@ -34,7 +31,7 @@ class Training():
                 if torch.cuda.is_available():
                     for key in img_labels['labels'].keys():
                         img_labels['labels'][key] = img_labels['labels'][key].cuda(gpu, non_blocking=True)
-                    
+                
                 output = model(img_labels['image'])
 
                 # Calculate Loss
@@ -45,25 +42,25 @@ class Training():
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-
+                
                 batch_size = img_labels['labels']['level_1'].size(0)
+                
+                _, preds_1 = torch.max(output['level_1'].data, 1)
+                correct_1 = (preds_1 == img_labels['labels']['level_1']).sum().item()
+                summ["acc_1"] += correct_1 / batch_size
 
-                summ["F2_1"] += Util.F2_score(output['level_1'], img_labels['labels']['level_1'])
-                summ["Acc_1"] += Util.acc_func(output['level_1'], img_labels['labels']['level_1'], batch_size)
+                _, preds_2 = torch.max(output['level_2'].data, 1)
+                correct_2 = (preds_2 == img_labels['labels']['level_2']).sum().item()
+                summ["acc_2"] += correct_2 / batch_size
 
-                summ["F2_2"] += Util.F2_score(output['level_2'], img_labels['labels']['level_2'])
-                summ["Acc_2"] += Util.acc_func(output['level_2'], img_labels['labels']['level_2'], batch_size)
-
-                summ["F2_3"] += Util.F2_score(output['level_3'], img_labels['labels']['level_3'])
-                summ["Acc_3"] += Util.acc_func(output['level_3'], img_labels['labels']['level_3'], batch_size)
+                _, preds_3 = torch.max(output['level_3'].data, 1)
+                correct_3 = (preds_3 == img_labels['labels']['level_3']).sum().item()
+                summ["acc_3"] += correct_3 / batch_size
 
                 dict_summ = {"loss" : f'{summ["loss"]/(i+1):05.3f}'}
-                dict_summ.update({"F2_1" : f'{summ["F2_1"]/(i+1):05.3f}'})
-                dict_summ.update({"Acc_1" : f'{summ["Acc_1"]/(i+1)*100:05.3f}'})
-                dict_summ.update({"F2_2" : f'{summ["F2_2"]/(i+1):05.3f}'})
-                dict_summ.update({"Acc_2" : f'{summ["Acc_2"]/(i+1)*100:05.3f}'})
-                dict_summ.update({"F2_3" : f'{summ["F2_3"]/(i+1):05.3f}'})
-                dict_summ.update({"Acc_3" : f'{summ["Acc_3"]/(i+1)*100:05.3f}'})
+                dict_summ.update({"acc_1" : f'{summ["acc_1"]/(i+1)*100:05.3f}'})
+                dict_summ.update({"acc_2" : f'{summ["acc_2"]/(i+1)*100:05.3f}'})
+                dict_summ.update({"acc_3" : f'{summ["acc_3"]/(i+1)*100:05.3f}'})
                 t.set_postfix(dict_summ)
                 t.update()
         
@@ -81,12 +78,9 @@ class Training():
 
         summ = {
             "loss_val": 0,
-            "F2_val_1" : 0,
-            "F2_val_2" : 0,
-            "F2_val_3" : 0,
-            "Acc_val_1": 0,
-            "Acc_val_2": 0,
-            "Acc_val_3": 0
+            "acc_val_1": 0,
+            "acc_val_2": 0,
+            "acc_val_3": 0
         }
 
         with tqdm(total=len(dataloader)) as t:
@@ -110,20 +104,22 @@ class Training():
                     # Calculate Metrics
                     batch_size = img_labels['labels']['level_1'].size(0)
                     
-                    summ["F2_val_1"] += Util.F2_score(output['level_1'], img_labels['labels']['level_1'])
-                    summ["Acc_val_1"] += Util.acc_func(output['level_1'], img_labels['labels']['level_1'], batch_size)
-                    summ["F2_val_2"] += Util.F2_score(output['level_2'], img_labels['labels']['level_2'])
-                    summ["Acc_val_2"] += Util.acc_func(output['level_2'], img_labels['labels']['level_2'], batch_size)
-                    summ["F2_val_3"] += Util.F2_score(output['level_3'], img_labels['labels']['level_3'])
-                    summ["Acc_val_3"] += Util.acc_func(output['level_3'], img_labels['labels']['level_3'], batch_size)
+                    _, preds_1 = torch.max(output['level_1'].data, 1)
+                    correct_1 = (preds_1 == img_labels['labels']['level_1']).sum().item()
+                    summ["acc_val_1"] += correct_1 / batch_size
+
+                    _, preds_2 = torch.max(output['level_2'].data, 1)
+                    correct_2 = (preds_2 == img_labels['labels']['level_2']).sum().item()
+                    summ["acc_val_2"] += correct_2 / batch_size
+
+                    _, preds_3 = torch.max(output['level_3'].data, 1)
+                    correct_3 = (preds_3 == img_labels['labels']['level_3']).sum().item()
+                    summ["acc_val_3"] += correct_3 / batch_size
 
                     dict_summ = {"loss_val" : f'{summ["loss_val"]/(i+1):05.3f}'}
-                    dict_summ.update({"F2_val_1" : f'{summ["F2_val_1"]/(i+1):05.3f}'})
-                    dict_summ.update({"Acc_val_1" : f'{summ["Acc_val_1"]/(i+1)*100:05.3f}'})
-                    dict_summ.update({"F2_val_2" : f'{summ["F2_val_2"]/(i+1):05.3f}'})
-                    dict_summ.update({"Acc_val_2" : f'{summ["Acc_val_2"]/(i+1)*100:05.3f}'})
-                    dict_summ.update({"F2_val_3" : f'{summ["F2_val_3"]/(i+1):05.3f}'})
-                    dict_summ.update({"Acc_val_3" : f'{summ["Acc_val_3"]/(i+1)*100:05.3f}'})
+                    dict_summ.update({"acc_val_1" : f'{summ["acc_val_1"]/(i+1)*100:05.3f}'})
+                    dict_summ.update({"acc_val_2" : f'{summ["acc_val_2"]/(i+1)*100:05.3f}'})
+                    dict_summ.update({"acc_val_3" : f'{summ["acc_val_3"]/(i+1)*100:05.3f}'})
                     t.set_postfix(dict_summ)
                     t.update()
         

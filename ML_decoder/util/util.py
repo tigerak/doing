@@ -25,12 +25,21 @@ class Util():
             losses += loss_func(outputs[key], img_labels['labels'][key])
         return losses
 
-    def acc_func(output, label, batch_size):
-        p = torch.argmax(output, dim=1)
-        t = torch.argmax(label, dim=1)
-        c = (p == t).sum().item()
-        acc = c / batch_size
-        return acc
+    def accuracy(output, target, topk=(1,)):
+        """Computes the accuracy over the k top predictions for the specified values of k"""
+        with torch.no_grad():
+            maxk = max(topk)
+            batch_size = target.size(0)
+
+            _, pred = output.topk(maxk, 1, True, True)
+            pred = pred.t()
+            correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+            res = []
+            for k in topk:
+                correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+                res.append(correct_k.mul_(100.0 / batch_size))
+            return res
 
     def F2_score(output, label, threshold=0.5, beta=1.0): # if beta > 1 -> Recall에 가중치
         prob = output > threshold
@@ -47,11 +56,8 @@ class Util():
         return F2.mean(0)
     
 class ImageDataset(Dataset):
-    def __init__(self, annotations_file, class_list_1, class_list_2, class_list_3, transform=None):
+    def __init__(self, annotations_file, transform=None):
         self.img_labels = annotations_file[['path', 'idx_1', 'idx_2', 'idx_3']]
-        self.class_list_1 = class_list_1
-        self.class_list_2 = class_list_2
-        self.class_list_3 = class_list_3
         self.transform = transform
 
     def __len__(self):
@@ -59,6 +65,7 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.img_labels.iloc[idx, 0]
+        
         image = Image.open(img_path).convert('RGB')
         if self.transform:
             image = self.transform(image)
@@ -70,8 +77,8 @@ class ImageDataset(Dataset):
         return {
             'image' : image, 
             'labels' : {
-                'level_1' : Util.encode_label(label_1, self.class_list_1), 
-                'level_2' : Util.encode_label(label_2, self.class_list_2), 
-                'level_3' : Util.encode_label(label_3, self.class_list_3)
+                'level_1' : label_1, 
+                'level_2' : label_2, 
+                'level_3' : label_3
             }
         }
