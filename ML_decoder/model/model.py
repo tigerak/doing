@@ -12,21 +12,21 @@ class MLDcoderClassification(nn.Module):
         
         self.level_1_decoder = nn.Sequential(
             MLDecoder(num_classes=n_level_1,
-                      initial_num_features=2048,
+                      initial_num_features=1280,
                       num_of_groups=1,
                       decoder_embedding=768,
                       zsl=0)
         )
         self.level_2_decoder = nn.Sequential(
             MLDecoder(num_classes=n_level_2,
-                      initial_num_features=2048,
+                      initial_num_features=1280,
                       num_of_groups=1,
                       decoder_embedding=768,
                       zsl=0)
         )
         self.level_3_decoder = nn.Sequential(
             MLDecoder(num_classes=n_level_3,
-                      initial_num_features=2048,
+                      initial_num_features=1280,
                       num_of_groups=1,
                       decoder_embedding=768,
                       zsl=0)
