@@ -8,7 +8,7 @@ class MLDcoderClassification(nn.Module):
     def __init__(self, n_level_1, n_level_2, n_level_3):
         super(MLDcoderClassification, self).__init__()
         self.backborn = timm.create_model(model_name=CFG.MODEL_NAME, pretrained=True, num_classes=0, drop_rate=0.3)
-        self.backborn_non_gap = nn.Sequential(*(list(self.backborn.children())[:-1]))
+        self.backborn_non_gap = nn.Sequential(*(list(self.backborn.children())[:-2]))
         
         self.level_1_decoder = nn.Sequential(
             MLDecoder(num_classes=n_level_1,
