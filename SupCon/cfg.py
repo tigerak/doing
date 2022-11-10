@@ -1,10 +1,10 @@
 class CFG:
-    RELEASE_MODE = 'retrain' # None, 'inference', 'retrain'
-    LEARNING_STEP = ['second'] # ['first', 'second']
+    RELEASE_MODE = None # None, 'inference', 'retrain'
+    LEARNING_STEP = ['first', 'second'] # ['first', 'second']
 
     ### TRAIN_PARAM ###
     # Image Encoder
-    RESIZE = 224
+    RESIZE = 280
     MODEL_NAME = "tf_efficientnetv2_s_in21ft1k" 
     image_embedding = 1280
     
